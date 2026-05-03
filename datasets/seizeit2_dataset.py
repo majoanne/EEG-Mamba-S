@@ -12,7 +12,7 @@ class SeizeIT2Dataset(Dataset):
         super().__init__()
         self.data_dir = data_dir
         self.mode = mode
-        self.preictal_min = preictal_min * 60   # convert minutes to seconds
+        self.preictal_min = preictal_min * 60
         self.channels = channels
         self.max_subjects = max_subjects
         self.samples = []
@@ -26,16 +26,13 @@ class SeizeIT2Dataset(Dataset):
         random.shuffle(subjects)
         subjects = subjects[:self.max_subjects]
 
-        preictal_list = []
-        interictal_list = []
-        pre_subject_list = []
-        inter_subject_list = []
+        preictal_list, interictal_list = [], []
+        pre_subject_list, inter_subject_list = [], []
 
         for sub_idx, sub in enumerate(tqdm(subjects, desc=f"Loading {self.mode} (preictal)")):
             eeg_dir = os.path.join(self.data_dir, sub, 'eeg')
             if not os.path.exists(eeg_dir):
                 continue
-
             edf_files = [f for f in os.listdir(eeg_dir) if f.endswith('_eeg.edf')]
             for edf_file in edf_files:
                 edf_path = os.path.join(eeg_dir, edf_file)
@@ -49,7 +46,6 @@ class SeizeIT2Dataset(Dataset):
                     if sfreq != 256:
                         continue
 
-                    # parse seizure onsets
                     onset_seconds = []
                     if os.path.exists(events_path):
                         events = pd.read_csv(events_path, sep='\t')
@@ -58,24 +54,21 @@ class SeizeIT2Dataset(Dataset):
                         elif 'sample' in events.columns:
                             onset_seconds = events['sample'].values
 
-                    window_size = 256 * 30      # 30 seconds
-                    step = 256 * 10             # 10 seconds step
+                    window_size = 256 * 30
+                    step = 256 * 10
                     for start in range(0, data.shape[1] - window_size + 1, step):
                         segment = data[:, start:start + window_size]
                         if segment.shape[1] < window_size:
                             continue
 
-                        # resample to 200 Hz (linear interpolation)
                         t_old = np.linspace(0, 1, window_size)
-                        t_new = np.linspace(0, 1, 6000)       # 30*200
+                        t_new = np.linspace(0, 1, 6000)
                         segment = np.array([np.interp(t_new, t_old, ch) for ch in segment])
                         segment = segment.reshape(self.channels, 30, 200)
 
-                        # per‑channel per‑window z‑score
                         segment = (segment - segment.mean(axis=(1,2), keepdims=True)) / \
                                   (segment.std(axis=(1,2), keepdims=True) + 1e-8)
 
-                        # determine label
                         window_center_sec = (start + window_size // 2) / sfreq
                         is_preictal = any(
                             onset_sec - self.preictal_min <= window_center_sec < onset_sec
@@ -89,10 +82,9 @@ class SeizeIT2Dataset(Dataset):
                             interictal_list.append(segment)
                             inter_subject_list.append(sub_idx)
 
-                except Exception as e:
+                except Exception:
                     continue
 
-        # Balance to 1:1 by random undersampling of interictal samples
         target_count = len(preictal_list)
         if len(interictal_list) > target_count:
             random.seed(42)
@@ -104,7 +96,6 @@ class SeizeIT2Dataset(Dataset):
         self.labels = [1] * len(preictal_list) + [0] * len(interictal_list)
         self.subject_ids = pre_subject_list + inter_subject_list
 
-        # shuffle
         random.seed(42)
         idx = list(range(len(self.samples)))
         random.shuffle(idx)

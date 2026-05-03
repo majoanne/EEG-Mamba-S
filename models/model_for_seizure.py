@@ -40,15 +40,14 @@ class Model(nn.Module):
         )
 
     def forward(self, x):
-        # x shape: (B, C, T, D) with C=2, T=30, D=200
         b, c, t, d = x.shape
-        x = x.view(b, c * t, d)      # (B, 60, 200)
+        x = x.view(b, c * t, d)
 
         for layer, norm in zip(self.backbone, self.norms):
             residual = x
             x = layer(x)
             x = norm(x + residual)
 
-        x = x.mean(dim=1)            # global average pooling -> (B, 200)
-        logits = self.classifier(x)  # (B, 1)
-        return logits.squeeze(-1)    # (B,)
+        x = x.mean(dim=1)
+        logits = self.classifier(x)
+        return logits.squeeze(-1)
